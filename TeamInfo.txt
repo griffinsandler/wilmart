@@ -1,0 +1,228 @@
+Team49:
+Griffin Sandler    email: gsandler3@gatech.edu
+Niyazi Eren        email: neren3@gatech.edu
+Michael Taylor     email: mtaylor306@gatech.edu
+Barry Dunham       email: bdunham3@gatech.edu
+Neha Nair          email: nnair32@gatech.edu
+
+Note: Example code from GTOnline project was used as a template for this project.
+
+SQL Queries: 
+
+Report1 : 
+SELECT Name FROM Manufacturer;
+--For Each $name (php)
+  SELECT COUNT(PID) AS pidcount, MAX(Price) AS maxprice, MIN(Price) AS minprice, 
+    AVG(Price) AS avgprice FROM Product WHERE Mname = '$name';
+--Sort manufacturers by Average Price (php)
+
+--If Drilldown selected for manufacturer $name (php)...
+  SELECT PID, Name, Price FROM Product WHERE Mname = $name ORDER BY Price DESC;
+
+Report2 : 
+SELECT Name FROM Category ORDER BY Name ASC;
+--For Each category $name (php)
+  SELECT COUNT(Product.PID) AS pidcount, MIN(Price) AS minprice, 
+    AVG(Price) AS avgprice, MAX(Price) AS maxprice FROM Product, 
+    IsInCategory WHERE Product.PID = IsInCategory.PID AND 
+    IsInCategory.CatName = $name;
+
+Report3 : 
+SELECT PID FROM IsInCategory WHERE CatName = \"Couches and Sofas\";
+--For Each PID $pid
+  SELECT Price, Name FROM Product WHERE PID = $pid;
+  --Get our non-discount sales
+  SELECT Quantity FROM Sold WHERE PID = $my_pid AND 
+    Sold.Date NOT IN (SELECT Date FROM `Discounted On` WHERE PID = $pid);
+  --Get our Discounted Sales and prices
+  SELECT DISTINCT Quantity, DiscountPrice FROM Sold, `Discounted On` WHERE 
+    Sold.PID = $my_pid AND Sold.Date IN 
+	(SELECT Date FROM `Discounted On` WHERE PID = $my_pid) AND 
+	Sold.Date = `Discounted On`.Date AND `Discounted On`.PID = $pid
+  --Calculate our actual and predicted sales from our data (php)
+--Sort PID on abs value of difference between actual/predicted (php)
+
+Report4 : 
+
+SELECT t.storeID, a.CityName, a.Address, year, ROUND(t.TotalRevenue, 2) as TotalRevenue FROM 
+(
+	Select year(t.date) as year, t.storeID, sum(t.TotalRevenue) as TotalRevenue FROM
+	(
+		(
+		Select t.date, t.storeId, t.Revenue*(1-b.PercentDiscount) as TotalRevenue FROM 
+		(
+			Select g.Date, g.StoreID, sum(g.Revenue) as Revenue FROM 
+			(
+			(Select t.PID, t.Date,t.StoreID,t.Quantity*t.Price as Revenue FROM 
+			(
+				SELECT p.PID, s.Date, st.StoreID, s.Quantity, p.Price 
+				FROM Product as p JOIN SOLD as s 
+				JOIN Store as st on p.PID = s.PID and s.StoreID = st.StoreID 
+				WHERE st.State = '$state'
+			) 
+			as t LEFT JOIN
+    			(
+				SELECT d.PID, d.Date, d.Discountprice 
+				FROM `Discounted On` AS d
+			) as g on t.PID = g.PID and t.Date = g.Date 
+				WHERE g.Discountprice is NULL) 
+				UNION
+    				(
+				Select t.PID, t.Date, t.StoreID, t.Quantity*g.Discountprice as Revenue 
+				FROM (SELECT p.PID, s.Date, st.StoreID, s.Quantity, p.Price 
+				FROM Product as p 
+				JOIN SOLD as s 
+				JOIN Store as st on p.PID = s.PID and s.StoreID = st.StoreID 
+				WHERE st.State = '$state'
+				) as t 
+				LEFT JOIN
+    				(
+					SELECT d.PID, d.Date, d.Discountprice 
+					FROM `Discounted On` AS d
+				) as g on t.PID = g.PID and t.Date = g.Date 
+				WHERE g.Discountprice is  not NULL
+			)
+		) as g group by g.DAte, g.StoreID
+		) as t LEFT JOIN `business day`as b on t.date = b.date)
+	) as t group by year, t.storeid order by year asc, TotalRevenue desc
+) as t 
+LEFT JOIN `Store` as a on t.storeID = a.storeID;
+
+Report5 : 
+
+SELECT q.year, q.total, ROUND(q.average,2) as average, a.groundhogs 
+FROM
+(
+    SELECT year(s.Date) as year, sum(s.Quantity) as total, sum(s.Quantity)/365 as average 
+    FROM Sold as s 
+    LEFT JOIN isincategory as c on s.PID = c.PID 
+    WHERE c.CatName = 'Outdoor Furniture' 
+    GROUP BY(year) 
+    ORDER BY Year ASC
+) as q
+
+LEFT JOIN
+(
+    SELECT year(s.Date) as year, sum(s.Quantity) as groundhogs 
+    FROM Sold as s 
+    LEFT JOIN isincategory as c on s.PID = c.PID 
+    WHERE c.CatName = 'Outdoor Furniture' and s.Date LIKE '____-02-02' 
+    GROUP BY year 
+    ORDER BY Year ASC) as a
+
+on a.year = q.year;
+
+Report6 : 
+
+WITH VolumePerCategory (category, state, volume) AS (
+        SELECT cat.Name AS category, st.State AS state, SUM(s.Quantity)
+        FROM sold s
+        JOIN product p ON p.PID = s.PID
+        JOIN store st ON s.StoreID = st.StoreID
+        JOIN city c ON st.State = c.State AND st.CityName = c.CityName
+        JOIN isincategory IIC on p.PID = iic.PID
+        JOIN category cat ON cat.Name = iic.CatName
+        WHERE s.Date IN (
+            SELECT Date FROM `business day`
+            WHERE Date LIKE CONCAT('$year','-','$month', '%')
+        )
+        GROUP BY cat.Name, c.State
+        )
+        SELECT v1.category, v1.state, v1.volume
+        FROM VolumePerCategory v1
+        JOIN VolumePerCategory v2
+        ON v1.volume > v2.volume
+        ORDER BY v1.category ASC;
+
+Report7 : 
+
+WITH TotalRevenue AS (
+    SELECT
+    YEAR(sld.Date) AS year, p.PID, sld.Quantity, p.Price, dc.DiscountPrice, bd.PercentDiscount, s.CityName,
+    CASE
+    WHEN bd.PercentDiscount IS NOT NULL AND dc.DiscountPrice IS NOT NULL THEN dc.DiscountPrice * (1 - bd.PercentDiscount) * sld.Quantity 
+    WHEN bd.PercentDiscount IS NULL AND dc.DiscountPrice IS NOT NULL THEN dc.DiscountPrice * sld.Quantity
+    WHEN bd.PercentDiscount IS NOT NULL THEN p.Price * (1 - bd.PercentDiscount) * sld.Quantity 
+    ELSE p.Price * sld.Quantity END AS revenue
+    FROM city c 
+    LEFT JOIN store s ON c.CityName = s.CityName
+    LEFT JOIN sold sld ON sld.StoreID = s.StoreID 
+    LEFT JOIN product p ON sld.PID = p.PID 
+    LEFT JOIN `business day` bd ON bd.Date = sld.Date 
+    LEFT JOIN `discounted on` dc ON dc.PID = p.PID AND dc.Date = bd.Date
+    )
+    SELECT year,
+    SUM(CASE WHEN c.Population < 3700000 THEN Revenue END) small,
+    SUM(CASE WHEN c.Population  BETWEEN 3700000 AND 6700000 THEN Revenue END) AS medium,
+    SUM(CASE WHEN c.Population  BETWEEN 6700000 AND 9000000 THEN Revenue END) AS large,
+    SUM(CASE WHEN c.Population  > 9000000 THEN Revenue END) AS `extra large`
+    FROM TotalRevenue
+    JOIN city c ON c.CityName = TotalRevenue.CityName
+    GROUP BY year
+    ORDER BY year;
+
+Report8 : 
+
+WITH StoreRevenue AS (
+    SELECT YEAR(sld.date) Year, st.StoreID, st.willsgrandshowcase,
+    CASE WHEN bd.savingsday = 1  THEN p.price * ((100-bd.percentdiscount)/100) * sld.quantity
+    WHEN bd.percentdiscount IS NULL AND do.discountprice IS NOT NULL THEN do.discountprice  * sld.quantity
+    ELSE p.price * sld.quantity END AS Revenue
+    FROM store st
+    LEFT JOIN sold sld ON st.StoreID = sld.StoreID
+    LEFT JOIN  product p ON sld.PID = p.PID
+    LEFT JOIN `discounted on` do ON sld.date = do.date AND p.PID = do.PID
+    LEFT JOIN `business day` bd ON sld.date = bd.date
+    WHERE st.willsgrandshowcase = 1
+    ),
+    GrandShowcaseStats AS (
+	SELECT year, 
+	MIN(revenue) gs_min_rev, 
+	AVG(revenue) gs_avg_rev, 
+        MAX(revenue) gs_max_rev
+        FROM StoreRevenue
+        WHERE willsgrandshowcase = 1
+        GROUP BY year
+        ),
+        NonShowcaseStats AS (
+	    SELECT year, 
+            MIN(revenue) ngs_min_rev, 
+            AVG(revenue) ngs_avg_rev, 
+            MAX(revenue) ngs_max_rev
+            FROM StoreRevenue
+            WHERE willsgrandshowcase = 0
+            GROUP BY year
+            )
+            SELECT gss.year,
+            round(gss.gs_min_rev,2) as Grand_Showcase_Minimum_Revenue,
+            round(gss.gs_avg_rev,2) as Grand_Showcase_Average_Revenue,
+            round(gss.gs_max_rev,2) as Grand_Showcase_Maximum_Revenue,
+            round(nss.ngs_min_rev,2) as Non_Grand_Showcase_Minimum_Revenue,
+            round(nss.ngs_avg_rev,2) as Non_Grand_Showcase_Average_Revenue,
+            round(nss.ngs_max_rev,2) as Non_Grand_Showcase_Maximum_Revenue
+            FROM GrandShowcaseStats gss
+            LEFT JOIN NonShowcaseStats nss ON gss.year = nss.year
+            WHERE gss.year IS NOT NULL
+            ORDER BY gss.year;
+
+Report9 : 
+
+WITH product_sales_by_showcase AS (
+	SELECT p.PID, 
+	SUM(CASE WHEN st.willsgrandshowcase = 1 THEN sld.quantity ELSE 0 END) gs_sold,
+	SUM(CASE WHEN st.willsgrandshowcase = 0 THEN sld.quantity ELSE 0 END) ngs_sold
+	FROM Product p
+	LEFT JOIN Sold sld ON p.PID = sld.PID
+	LEFT JOIN Store st ON sld.StoreID = st.StoreID
+	GROUP BY p.PID
+        )
+        SELECT c.Name AS Category,
+	SUM(COALESCE(ngs_sold,0)) AS Non_Showcase_Qty,
+	SUM(COALESCE(gs_sold,0)) AS Grand_Showcase_Qty,
+	(SUM(COALESCE(ngs_sold,0)) - SUM(COALESCE(gs_sold,0))) AS Difference
+        FROM Category c
+        LEFT JOIN IsInCategory iic ON c.Name = iic.CatName
+        LEFT JOIN product_sales_by_showcase pss ON iic.PID = pss.PID
+        GROUP BY c.Name 
+	ORDER BY (SUM(COALESCE(gs_sold,0)) - SUM(COALESCE(ngs_sold,0))) DESC, c.Name ASC;
+
